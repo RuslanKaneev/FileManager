@@ -192,10 +192,6 @@ namespace FileManager
             }
 
 
-
-
-
-
             //метод вывода информации о файле
 
             static void FileInformation(string file)
@@ -234,7 +230,6 @@ namespace FileManager
 
 
             }
-
 
 
             //метод копирования каталогов
@@ -366,7 +361,7 @@ namespace FileManager
                                 {
                                     try
                                     {
-                                        string file = Directory.GetFiles(State.currentDirectory)[currentIndex];
+                                        string file = State.fileSave;
                                         Process.Start(new ProcessStartInfo() { FileName = file, UseShellExecute = true });
                                     }
                                     catch (Exception fileProcExc)
