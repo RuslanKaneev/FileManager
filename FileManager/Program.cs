@@ -1,200 +1,632 @@
 ﻿using System.IO;
 using System.Diagnostics;
+using System.Runtime.Serialization.Formatters.Binary;
+using System.Text;
+using System.Text.Json;
+using Microsoft.Extensions.Configuration;
+
 
 namespace FileManager
 {
+
     class Program
     {
-        /*
-         *
-         * File.Delete(@"c:\autoexec.bat");
-            File.Copy(@"c:\autoexec.bat", @"d:\autoexec_222.bat");
+        // в enum - будет 2 состояния - выбрана работа с файлами или с каталогом, переключение tab 
+        enum Fokus
+        {
+            Folder = 1,
+            File = 2
+        }
 
-            Directory.CreateDirectory(@"c:\fooo");
-            Directory.Delete(@"c:\fooo");
-
-            string[] files = Directory.GetFiles(@"c:\foo");
-            string[] dirs = Directory.GetDirectories(@"c:\foo");
-         *
-         */
-
-        static void Main(string[] args)
+        public class State
         {
 
-            /*
+            public int elementCount = 0;
+            
+            public static int lengthDirectory = 0;
+            //сохраняем путь выбранного файла
+            public static string fileSave = String.Empty;
+            
 
-            return;
+            //сохраняем путь выбраной директории
+            public static string directorySave = String.Empty;
+            public static string copyDirectory = String.Empty;
+            //текущая директория
+            public static string currentDirectory = @"D:\1";
+            //куда сохраняем путь к файлу состояния
+            public static string saveExitFile = @"D:\save.txt";
+            public static string logException = @"D:\log.txt";
+            public static bool escapeExit = false;
+            public static int numberLinesPage = Convert.ToInt32(Properties.Resources.numberLinesPage);
+        }
+        private static State myState = new State();
 
-            string path = @"D:\NWN\NWN2 Complete";
+        private const int MaxLvl = 2;
 
-            int currentIndex = 0;
 
-            PrintFiles(0);
+        static void Main(string[] args)
 
-            while (true)
+        {
+
+
+
+
+            //по умолчанию выбрана работа с каталогами
+            Fokus tabFokus = Fokus.Folder;
+            //метод вывода дерева каталогов
+
+            static void DirectoryOutput(string path, int level)
             {
-                ConsoleKeyInfo info = Console.ReadKey();
-
-                switch (info.Key)
-                {
-                    case ConsoleKey.UpArrow:
-                        {
-                            if (currentIndex > 0)
-                            {
-                                currentIndex--;
-                            }
-
-                            PrintFiles(currentIndex);
-                        }
-                        break;
-                    case ConsoleKey.DownArrow:
-                        {
-                            currentIndex++;
-
-                            PrintFiles(currentIndex);
-                        }
-                        break;
-                    case ConsoleKey.Enter:
-                        {
-                            string file = Directory.GetFiles(path)[currentIndex];
-
-
-                            Process.Start(new ProcessStartInfo() { FileName = file, UseShellExecute = true });
-                        }
-                        break;
-                }
-            }
-
-
-            string currentCmd = string.Empty;
-            /*
-            while (true)
-            {
-                currentCmd = Console.ReadLine();
-
-                if (currentCmd == "quit")
+                //ограничение по выводу - 2 уровня
+                if (level > MaxLvl)
                 {
                     return;
                 }
+                try 
+                { 
+                    string[] dirs = Directory.GetDirectories(path);
 
-                int page = int.Parse(currentCmd);
 
-                int pageSize = 5;
 
-                int skipFiles = pageSize * page;
-
-                int maxFilesToShow = skipFiles + pageSize;
-
-                for (int i = skipFiles; i < maxFilesToShow; i++)
-                {
-                    string[] files = Directory.GetFiles(path);
-
-                    if (files.Length <= i)
+                    for (int i = 0; i < dirs.Length; i++)
                     {
-                        break;
+
+                        var levelUp = level > MaxLvl ? MaxLvl : level;
+                        //чтобы дерево каталогов было более наглядней
+                        Console.Write(string.Concat(Enumerable.Repeat("--------", levelUp)));
+                        //оставляем относительный путь
+                        Console.WriteLine(dirs[i].Replace(path, ""));
+
+                        DirectoryOutput(dirs[i], level + 1);
+
                     }
 
-                    Console.WriteLine(files[i]);
+                }
+                catch (Exception directoryOutExc)
+                {
+                                                      
+                File.AppendAllText(State.logException, Convert.ToString(directoryOutExc));
+                
+                                    
                 }
 
             }
-        */
-            /*
-            public static void PrintFiles(int currentIndex)
+
+
+
+            //метод вы подсветки строки при движении стрелок вверх-вниз для файлов
+
+            static void RowHighlighting(string path, int currentIndex, int numberPage)
             {
-                string path = @"D:\NWN\NWN2 Complete";
 
                 Console.Clear();
+                Console.WriteLine("Добро пожаловать в файловый менеджер\n");
 
-                string[] files = Directory.GetFiles(path);
-
-                for (int i = 0; i < files.Length; i++)
+                Console.WriteLine("кнопка TAB - переключение между папками и файлами \ncтрелки вверх-вниз навигация по  файлам \nкнопка ESC - выход из программы \ncтрелки влево-вправо пейджинг по страницам файлов \nкнопка DELETE - удаление файла \nкнопка F5 - копирование файла \nкнопка Backspace - подняться в каталоге выше \nкнопка Enter - открыть файл\nкнопка F1 - сменить директорию\nкнопкаF12 -информация о файле\n");
+                try
                 {
-                    if (currentIndex == i)
+
+                
+                    string[] files = Directory.GetFiles(path);
+                    // считаю как ограничить пейджинг и организовать вывод и чтобы последняя страница коррект
+                    
+                    var startElementNumber = State.numberLinesPage * numberPage;
+                    var elementsOnPage = files.Length - startElementNumber;
+
+                    if (elementsOnPage > State.numberLinesPage)
+                    {
+                        elementsOnPage = State.numberLinesPage;
+                    }
+                    myState.elementCount = elementsOnPage;
+                    Console.WriteLine(path);
+
+                    for (int i = startElementNumber; i < startElementNumber + elementsOnPage; i++)
+                    {
+                        if (startElementNumber + currentIndex == i)
+                        {  //подсветка строки
+                            ConsoleColor current = Console.BackgroundColor;
+
+                            Console.BackgroundColor = ConsoleColor.Green;
+
+                            FileInformation(files[i]);
+
+                            Console.BackgroundColor = current;
+                            //сохраняем путь к выбранному файлу
+
+                            State.fileSave = files[i];
+
+                        }
+                        else
+                        {
+                            FileInformation(files[i]);
+                        }
+
+                    }
+
+                }
+                catch (Exception rowHighlightingExc)
+                {
+                    File.AppendAllText(State.logException, Convert.ToString(rowHighlightingExc));
+                }
+
+            }
+
+            //метод по подсветки строки при движении стрелок вверх-вниз для каталогов
+
+            static void DirectoryArrows(string path, int currentIndexDirectory)
+            {
+
+                Console.Clear();
+                Console.WriteLine("Добро пожаловать в файловый менеджер\n");
+                Console.WriteLine("кнопка TAB - переключение между папками и файлами \ncтрелки вверх-вниз навигация по папкам и файлам \nкнопка ESC - выход из программы) \ncтрелки влево-вправо пейджинг по страницам файлов \nкнопка DELETE - удаление файла или папки \nкнопка F5 - копирование файла или папки \nкнопка Backspace - подняться в каталоге выше \nкнопка Enter -  опуститься в текущую папку\nкнопка F1 - сменить директорию\nкнопкаF12 -информация о папке\n");
+                Console.WriteLine(path);
+                try 
+                { 
+                string[] dirs = Directory.GetDirectories(path);
+
+                for (int i = 0; i < dirs.Length; i++)
+
+                {
+                    if (currentIndexDirectory == i)
                     {
                         ConsoleColor current = Console.BackgroundColor;
 
-                        Console.BackgroundColor = ConsoleColor.Yellow;
-
-                        PrintFile(files[i]);
+                        Console.BackgroundColor = ConsoleColor.Green;
+                        DirectoryInformation(dirs[i]);
 
                         Console.BackgroundColor = current;
-
+                        //сохраняем количество папок, потом будем использовать для ограничения перемещения стрелки
+                        State.lengthDirectory = dirs.Length;
+                        //сохраняем путь выбранной папки
+                        State.directorySave = dirs[i];
                         continue;
                     }
+                    DirectoryInformation(dirs[i]);
+                }
+                }
+                catch (Exception directoryArrowsExc)
+                {
+                    File.AppendAllText(State.logException, Convert.ToString(directoryArrowsExc));
+                }
 
-                    PrintFile(files[i]);
+            }
+
+
+
+
+
+
+            //метод вывода информации о файле
+
+            static void FileInformation(string file)
+            {
+                try
+                {
+                    FileInfo fileInfo = new FileInfo(file);
+                    Console.WriteLine($"{fileInfo.FullName}  {fileInfo.Length} bytes");
+                }
+                catch (Exception fileInformationExc)
+                {
+                    File.AppendAllText(State.logException, Convert.ToString(fileInformationExc));
+                }
+
+            }
+
+            //метод вывода информации о директории
+            static void DirectoryInformation(string path)
+            {
+                try
+                {
+                    DirectoryInfo directoryInfo = new DirectoryInfo(path);
+                    Console.WriteLine($"{directoryInfo.FullName}  {directoryInfo.Parent} {directoryInfo.LastWriteTime} ");
+                }
+                catch (Exception directoryInformationExc)
+                {
+                    File.AppendAllText(State.logException, Convert.ToString(directoryInformationExc));
                 }
             }
 
-            public static void PrintFile(string file)
+            // метод для определения - максимального количества страниц файлов.
+            // Далее использую его при пейджинге
+            static int CountPageLimitFile(string path, int numberLinesPage)
             {
-                FileInfo info = new FileInfo(file);
+                return (int)Math.Ceiling((double)(Directory.GetFiles(path).Length / numberLinesPage));
 
-                Console.WriteLine($"{info.FullName} {info.Length} bytes");
+
             }
 
-            /*
-             * c:\
-             *    c:\windows\
-             *        c:\windows\fonts
-             *        c:\windows\temp
-             *    c:\games
-             *
-             */
-            /*
-                    public static void PrintDir(string directory, int level)
+
+
+            //метод копирования каталогов
+            static void CopyDirectory(string oldDir, string newDir)
+            {
+                try
+                {
+
+                
+                Directory.CreateDirectory(newDir);
+
+                string[] filesCopy = Directory.GetFiles(oldDir);
+                for (int i = 0; i < filesCopy.Length; i++)
+                {     // создаем новый путь к файлам
+                    string fileCopyPath = newDir + "\\" + Path.GetFileName(filesCopy[i]);
+                    File.Copy(filesCopy[i], fileCopyPath, true);
+                }
+                string[] dirsCopy = Directory.GetDirectories(oldDir);
+                for (int i = 0; i < dirsCopy.Length; i++)
+                {   // создаем новый путь к папкам
+                    string fileCopyPath = newDir + "\\" + Path.GetFileName(dirsCopy[i]);
+                    CopyDirectory(dirsCopy[i], fileCopyPath);
+                }
+                }
+                catch (Exception copyDirectoryExc)
+                {
+                    File.AppendAllText(State.logException, Convert.ToString(copyDirectoryExc));
+                }
+
+
+            }
+
+
+
+            
+                int level = 1;
+                int currentIndex = 0;
+                int numberPage = 0;
+                int currentIndexDirectory = 0;
+
+                //если файл существует, значит мы уже сохранили при выходе путь- открытой на тот момент директории
+
+
+                if (File.Exists(State.saveExitFile) == true)
+
+                {   //считали путь из файла       
+                    State.currentDirectory = File.ReadAllText(State.saveExitFile, Encoding.UTF8);
+                }
+
+                //выводим текущий каталог
+                DirectoryArrows(State.currentDirectory, currentIndexDirectory);
+
+
+                while (true)
+
+                {  //чтобы выйти из while
+
+                    if (State.escapeExit)
                     {
-                        string[] dirs = Directory.GetDirectories(directory);
+                        break;
+                    }
+                    //вывод дерева каталогов 2 уровня
+                    DirectoryOutput(State.currentDirectory, level);
 
-                        for (int i = 0; i < dirs.Length; i++)
-                        {
-                            string childDir = dirs[i];
 
-                            for (int z = 0; z < level; z++)
+
+
+                    ConsoleKeyInfo thePressedKey = Console.ReadKey();
+
+                    switch (thePressedKey.Key)
+                    {
+                        //идем вверх окрашенной строкой по файлам
+                        case ConsoleKey.UpArrow:
                             {
-                                Console.Write("\t");
+                                if (tabFokus == Fokus.File)
+                                {
+
+                                    if (currentIndex > 0)
+                                    {
+                                        currentIndex--;
+                                    }
+
+                                    RowHighlighting(State.currentDirectory, currentIndex, numberPage);
+                                }
+                                //идем вверх окрашенной строкой по папкам
+                                else
+                                {
+                                    if (currentIndexDirectory > 0)
+                                    {
+                                        currentIndexDirectory--;
+                                    }
+
+                                    DirectoryArrows(State.currentDirectory, currentIndexDirectory);
+                                }
+
+
+                            }
+                            break;
+                        //идем вниз окрашенной строкой по файлам
+                        case ConsoleKey.DownArrow:
+                            {
+
+                                if (tabFokus == Fokus.File)
+                                {   // ограничение, что если кончились файлы строка не улетала вниз
+                                    if (currentIndex < myState.elementCount - 1)
+                                    {
+                                        currentIndex++;
+                                    }
+
+                                    RowHighlighting(State.currentDirectory, currentIndex, numberPage);
+                                }
+                                //идем вниз окрашенной строкой по папкам
+                                else
+                                {    // ограничение, что если кончились папки строка не улетала вниз
+                                    if (currentIndexDirectory < State.lengthDirectory - 1)
+                                    {
+                                        currentIndexDirectory++;
+                                    }
+                                    DirectoryArrows(State.currentDirectory, currentIndexDirectory);
+                                }
+
+
+                            }
+                            break;
+                        //спуск ниже по директории если в папке и открытие файла - если таргет на файле
+                        case ConsoleKey.Enter:
+                            {   // если в файле пробуем открыть
+                                if (tabFokus == Fokus.File)
+                                {
+                                    try
+                                    {
+                                        string file = Directory.GetFiles(State.currentDirectory)[currentIndex];
+                                        Process.Start(new ProcessStartInfo() { FileName = file, UseShellExecute = true });
+                                    }
+                                    catch (Exception fileProcExc)
+                                    {
+                                        File.AppendAllText(State.logException, Convert.ToString(fileProcExc));
+                                    }
+                                }
+                                //если в папке
+                                else
+                                {
+
+                                    //устанавливаем текущим -выбранную папку, устанавливаем выделение строки в самый верх, выводим на экран открытую папку
+                                    State.currentDirectory = State.directorySave;
+                                    currentIndexDirectory = 0;
+                                    DirectoryArrows(State.currentDirectory, currentIndexDirectory);
+
+                                }
+                            }
+                            break;
+                        //удаление фалов и каталогов
+                        case ConsoleKey.Delete:
+                            {
+                                if (tabFokus == Fokus.File)
+                                {
+                                    try
+                                    {  //удаляем выделенный файл, перерисовываем заново файлы
+                                        string file = Directory.GetFiles(State.directorySave)[currentIndex];
+                                        File.Delete(file);
+                                        RowHighlighting(State.directorySave, currentIndex, numberPage);
+
+                                    }
+
+                                    catch (Exception delFileExc)
+                                    {
+                                        File.AppendAllText(State.logException, Convert.ToString(delFileExc));
+                                    }
+
+
+                                }
+                                else
+                                {
+                                    try
+                                    {   //удаляем папку рекурсивно со всеми вложенными файлами и папками
+                                        DirectoryInfo deliteDir = new DirectoryInfo(State.directorySave);
+                                        deliteDir.Delete(true);
+                                        DirectoryArrows(State.directorySave, currentIndexDirectory);
+                                    }
+                                    catch (Exception delDirExc)
+                                    {
+                                        File.AppendAllText(State.logException, Convert.ToString(delDirExc));
+                                    }
+
+                                }
+                            }
+                            break;
+
+
+                        //копирование файлов и каталогов
+                        case ConsoleKey.F5:
+                            {    // когда фокус на файлах
+                                if (tabFokus == Fokus.File)
+                                {
+
+                                    Console.WriteLine("Введите путь куда хотите скопировать файл и его название");
+
+                                    try
+                                    {   // вводим полный путь файла и копируем его
+                                        string? copyFileSave = Console.ReadLine();
+                                        File.Copy(State.fileSave, copyFileSave, true);
+                                    }
+                                    catch (Exception copyFileExc)
+                                    {
+                                        File.AppendAllText(State.logException, Convert.ToString(copyFileExc));
+                                        Console.WriteLine("Повторите еще раз операцию копирования нажав F5 и введя корректный путь");
+                                    }
+                                }
+                                // когда фокус на папках
+                                else
+                                {
+                                    Console.WriteLine("Укажите полный путь, куда будет осуществленно копирование.\nЕсли указанной в пути папки нет, то файловый менеджер создаст ее. Пример: D:\\1 (без слеша в конце)");
+                                    try
+                                    {   //считываем выбранную директорию
+                                        string copyDirectory = State.directorySave;
+                                        // вводим путь сохранения файла и его название, вызываем метод копирование папки
+                                        string? copyDirectorySave = Console.ReadLine();
+
+                                        CopyDirectory(copyDirectory, copyDirectorySave);
+
+                                    }
+                                    catch (Exception copyDirExc)
+                                    {
+                                        File.AppendAllText(State.logException, Convert.ToString(copyDirExc));
+                                        Console.WriteLine("Повторите еще раз операцию копирования нажав F5 и введя корректный путь");
+                                    }
+
+
+                                }
+
+
+                            }
+                            break;
+
+                        case ConsoleKey.F12:
+                            {
+                            if (tabFokus == Fokus.File)
+                            {
+                                Console.Clear();
+                                FileInformation(State.fileSave);
+                                
+
                             }
 
-                            Console.WriteLine(childDir);
+                            if (tabFokus == Fokus.Folder)
+                            {
+                                Console.Clear();
+                                DirectoryInformation(State.directorySave);
+                            }
+                            }
+                            break;
 
-                            PrintDir(childDir, level + 1);
-                        }
+                        case ConsoleKey.F1:
+                            {
+                                Console.WriteLine("Введите необходимую директорию(Пример E:\\c#) ");
+                                try
+                                {
+                                    State.currentDirectory = Console.ReadLine();
+                                    DirectoryArrows(State.currentDirectory, currentIndexDirectory);
+                                }
+                                catch (Exception changeDirExc)
+                                {
+
+                                    Console.WriteLine("Нажмите F1 и Введите корректный путь");
+                                    File.AppendAllText(State.logException, Convert.ToString(changeDirExc));
+                                }
+                                
+                            }
+                            break; 
+
+                        //переключение TAB между файлами и папками, отрисовка 
+                        case ConsoleKey.Tab:
+                            {
+
+                                if (tabFokus == Fokus.File)
+                                {
+                                    tabFokus = Fokus.Folder;
+                                    DirectoryArrows(State.currentDirectory, currentIndexDirectory);
+
+                                }
+                                else
+                                {
+                                    tabFokus = Fokus.File;
+                                    RowHighlighting(State.currentDirectory, currentIndex, numberPage);
+                                }
+
+                            }
+                            break;
+                        // пейджинг файлов с ограничением
+                        case ConsoleKey.LeftArrow:
+                            {
+                                if (tabFokus == Fokus.File)
+                                {
+                                    currentIndex = 0;
+                                    if (numberPage > 0)
+                                        numberPage--;
+                                    RowHighlighting(State.currentDirectory, currentIndex, numberPage);
+                                }
+                                else
+                                { //чтобы при случайном нажатии, когда фокус на директории - экран не засорялся
+                                    DirectoryArrows(State.currentDirectory, currentIndexDirectory);
+                                }
+
+                            }
+                            break;
+                        // пейджинг файлов с ограничением
+                        case ConsoleKey.RightArrow:
+                            {
+                                if (tabFokus == Fokus.File)
+                                {
+                                    currentIndex = 0;
+
+                                    if (CountPageLimitFile(State.currentDirectory, State.numberLinesPage) > numberPage)
+                                    {
+                                        numberPage++;
+                                    }
+                                    RowHighlighting(State.currentDirectory, currentIndex, numberPage);
+                                }
+                                else
+                                { //чтобы при случайном нажатии, когда фокус на директории - экран не засорялся
+                                    DirectoryArrows(State.currentDirectory, currentIndexDirectory);
+                                }
+
+
+                            }
+                            break;
+
+                        //переход в директории на уровень вверх
+                        case ConsoleKey.Backspace:
+                            {
+
+                                DirectoryInfo parentDirectory = new DirectoryInfo(State.currentDirectory);
+
+                                string parentDirectoryString = Convert.ToString(parentDirectory);
+
+                                int parentDirectoryLength = parentDirectoryString.Length;
+                                try
+                                {
+                                    if (parentDirectoryLength >= 4)
+                                    {
+                                        State.copyDirectory = parentDirectory.Parent.FullName;
+
+                                    }
+                                }
+                                catch (Exception UpDirExc)
+                                {
+                                    State.copyDirectory = State.currentDirectory;
+
+
+                                    File.AppendAllText(State.logException, Convert.ToString(UpDirExc));
+                                }
+
+
+                                DirectoryArrows(State.copyDirectory, currentIndexDirectory);
+                                State.currentDirectory = State.copyDirectory;
+                            }
+                            break;
+                        //выход из программы
+                        case ConsoleKey.Escape:
+
+                            {
+                                try
+                                {
+                                    //записываю в файл путь текущей директории
+                                    File.WriteAllText(State.saveExitFile, State.currentDirectory);
+                                    //чтобы выйти и из второго цикла значение меняю escapeExit
+                                    State.escapeExit = true;
+                                }
+                                catch (Exception saveFileExc)
+                                {
+                                    File.AppendAllText(State.logException, Convert.ToString(saveFileExc));
+                                }
+                                break;
+
+
+                            }
+
+
+                        default:
+                            {
+                            }
+                            break;
+
                     }
 
-                    */
 
-
-            string path = @"D:\NWN\NWN2 Complete\Effects";
-            
-            while (true)
-            {
-                string teamCmd = Console.ReadLine();
-                var numberPage = Convert.ToInt32(teamCmd);
-                var numberLinesPage = 10;
-                var propagesViewed = numberLinesPage * numberPage;
-                var maxPage = propagesViewed + numberLinesPage;
-                for (int i = propagesViewed; i < maxPage; i++)
-                {
-                    string[] files = Directory.GetFiles(path);
-                    if (files.Length <= i)
-                    {
-                        break;
-                    }
-                    Console.WriteLine(files[i]);
                 }
 
-                /*
-                switch (teamCmd)
-                {
-                    default:
-                        break;
-                }
-                */
+
             }
-            Console.ReadLine();
+
 
         }
     }
-}
 
